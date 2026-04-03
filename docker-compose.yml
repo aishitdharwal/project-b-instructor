@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: project-b-pgvector
+    environment:
+      POSTGRES_USER: workshop
+      POSTGRES_PASSWORD: workshop123
+      POSTGRES_DB: acmera_kb
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
