@@ -1,0 +1,6 @@
+openai
+langfuse>=2.0.0,<3.0.0
+psycopg2-binary
+pgvector
+python-dotenv
+rich
