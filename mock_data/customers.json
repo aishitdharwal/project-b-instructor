@@ -1,0 +1,10 @@
+[
+  {"id": "CUST001", "name": "Priya Sharma", "email": "priya.sharma@gmail.com", "tier": "gold", "since": "2023-03-15", "annual_spend": 92000},
+  {"id": "CUST002", "name": "Rahul Mehta", "email": "rahul.m@outlook.com", "tier": "standard", "since": "2024-06-01", "annual_spend": 12000},
+  {"id": "CUST003", "name": "Ananya Reddy", "email": "ananya.reddy@yahoo.com", "tier": "silver", "since": "2024-01-10", "annual_spend": 38000},
+  {"id": "CUST004", "name": "Vikram Patel", "email": "v.patel@company.co.in", "tier": "standard", "since": "2025-01-20", "annual_spend": 5000},
+  {"id": "CUST005", "name": "Deepika Nair", "email": "deepika.n@gmail.com", "tier": "silver", "since": "2023-08-22", "annual_spend": 52000},
+  {"id": "CUST006", "name": "Arjun Singh", "email": "arjun.s@proton.me", "tier": "gold", "since": "2022-11-05", "annual_spend": 115000},
+  {"id": "CUST007", "name": "Kavya Iyer", "email": "kavya.iyer@gmail.com", "tier": "standard", "since": "2025-02-14", "annual_spend": 3500},
+  {"id": "CUST008", "name": "Rohan Gupta", "email": "rohan.g@hotmail.com", "tier": "silver", "since": "2024-04-30", "annual_spend": 28000}
+]

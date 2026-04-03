@@ -1,0 +1,152 @@
+[
+  {
+    "id": "b01",
+    "query": "I want to return a laptop I bought last week",
+    "expected_intent": "return_or_refund",
+    "expected_answer": "You can return a laptop within 30 calendar days of delivery (standard) or 45/60 days if you're Premium Silver/Gold. Items must be in original condition with all accessories. Initiate the return at returns.acmera.com or by contacting support.",
+    "expected_source": "01_return_policy.md",
+    "expected_escalation": false,
+    "difficulty": "easy",
+    "category": "returns"
+  },
+  {
+    "id": "b02",
+    "query": "Where is my order? I placed it 5 days ago",
+    "expected_intent": "order_status",
+    "expected_answer": "You can track your order through the Acmera app or website under 'My Orders'. You should also have received SMS and email updates at each stage. Standard shipping takes 5-7 business days. If it shows as delivered but you haven't received it, file a claim within 7 days.",
+    "expected_source": "03_shipping_policy.md",
+    "expected_escalation": false,
+    "difficulty": "easy",
+    "category": "order_status"
+  },
+  {
+    "id": "b03",
+    "query": "I was charged twice for the same order",
+    "expected_intent": "billing_or_payment",
+    "expected_answer": "If a payment fails, the order is not placed and no amount is deducted. In rare cases where an amount is debited but the order is not confirmed, the refund is initiated automatically within 24 hours. Please contact support with your order number and payment details for investigation.",
+    "expected_source": "05_payment_methods.md",
+    "expected_escalation": true,
+    "difficulty": "medium",
+    "category": "billing"
+  },
+  {
+    "id": "b04",
+    "query": "How much do I need to spend to reach Premium Gold?",
+    "expected_intent": "membership",
+    "expected_answer": "Premium Gold requires spending ₹75,000 in a calendar year, or maintaining Premium Silver status for 3 or more consecutive years.",
+    "expected_source": "02_premium_membership.md",
+    "expected_escalation": false,
+    "difficulty": "easy",
+    "category": "membership"
+  },
+  {
+    "id": "b05",
+    "query": "My package arrived and the box was completely crushed. The product looks damaged.",
+    "expected_intent": "order_status",
+    "expected_answer": "Report the damage within 48 hours of delivery through the app or by contacting support. Include photos of the damaged product and packaging. Acmera will arrange a free replacement or full refund — no need to return the damaged item in most cases.",
+    "expected_source": "03_shipping_policy.md",
+    "expected_escalation": true,
+    "difficulty": "easy",
+    "category": "damaged_delivery"
+  },
+  {
+    "id": "b06",
+    "query": "I bought SoundPods during the Diwali sale. It's been 20 days and one earbud cuts out",
+    "expected_intent": "return_or_refund",
+    "expected_answer": "Since the product has a defect, this falls under warranty regardless of whether you're past the promotional return window. Contact support with your order number and description of the issue. The warranty process: remote diagnosis → prepaid shipping label if needed → repair or replacement in 7-14 business days.",
+    "expected_source": "04_warranty_policy.md",
+    "expected_escalation": false,
+    "difficulty": "hard",
+    "category": "warranty_return"
+  },
+  {
+    "id": "b07",
+    "query": "Can I get cash for my Acmera Wallet balance?",
+    "expected_intent": "billing_or_payment",
+    "expected_answer": "No. Acmera Wallet balance cannot be withdrawn as cash or transferred to a bank account. It can only be used for purchases on the Acmera platform. Wallet balance does not expire as long as your account is active.",
+    "expected_source": "13_acmera_wallet.md",
+    "expected_escalation": false,
+    "difficulty": "easy",
+    "category": "wallet"
+  },
+  {
+    "id": "b08",
+    "query": "I need to cancel my Premium Gold membership immediately",
+    "expected_intent": "membership",
+    "expected_answer": "Premium membership status is reviewed annually and cannot be cancelled mid-year. Your status will be assessed at your next annual review date. If you fall below the spending threshold, you'll receive 30 days notice before any downgrade, plus a 90-day grace period. For specific account changes, please contact support.",
+    "expected_source": "02_premium_membership.md",
+    "expected_escalation": true,
+    "difficulty": "medium",
+    "category": "membership_cancel"
+  },
+  {
+    "id": "b09",
+    "query": "What payment methods can I use?",
+    "expected_intent": "billing_or_payment",
+    "expected_answer": "Acmera accepts credit/debit cards (Visa, Mastercard, Amex, RuPay), UPI (Google Pay, PhonePe, Paytm, BHIM), net banking, Acmera Wallet, no-cost EMI on select products, and Cash on Delivery for orders ₹200–₹25,000 (₹49 fee).",
+    "expected_source": "05_payment_methods.md",
+    "expected_escalation": false,
+    "difficulty": "easy",
+    "category": "payment_methods"
+  },
+  {
+    "id": "b10",
+    "query": "I want to delete my account but I have ₹2,000 in my wallet",
+    "expected_intent": "general",
+    "expected_answer": "Account deletion is permanent and irreversible. Your ₹2,000 wallet balance will be forfeited — it cannot be withdrawn or transferred. All order history and Premium status will also be lost. We recommend using your wallet balance before deleting, or requesting a data export first (fulfilled within 30 days).",
+    "expected_source": "10_account_management.md",
+    "expected_escalation": true,
+    "difficulty": "medium",
+    "category": "account_deletion"
+  },
+  {
+    "id": "b11",
+    "query": "Why isn't my promo code working at checkout",
+    "expected_intent": "billing_or_payment",
+    "expected_answer": "Promotional discounts cannot be combined with coupon codes or other offers unless explicitly stated. Flash sale and clearance pricing is also not combinable with additional codes. If your code is valid and you're not during a promotional event, please contact support with the code and your order details.",
+    "expected_source": "07_promotional_events.md",
+    "expected_escalation": false,
+    "difficulty": "medium",
+    "category": "promotions"
+  },
+  {
+    "id": "b12",
+    "query": "My ProBook X15 trackpad stopped working completely after 8 months",
+    "expected_intent": "product_info",
+    "expected_answer": "A completely non-functional trackpad after 8 months is likely a manufacturing defect covered under the standard 1-year warranty. Contact support with your order number. After remote diagnosis, if it can't be resolved remotely, a prepaid shipping label will be provided. Repair or replacement typically takes 7-14 business days.",
+    "expected_source": "04_warranty_policy.md",
+    "expected_escalation": false,
+    "difficulty": "medium",
+    "category": "warranty_claim"
+  },
+  {
+    "id": "b13",
+    "query": "send me my money back i dont want this anymore",
+    "expected_intent": "return_or_refund",
+    "expected_answer": "To initiate a return, the item must be within the return window (30 days standard, 45 days Premium Silver, 60 days Premium Gold) and in original condition. You can start the process at returns.acmera.com or by contacting support with your order number. Refunds are processed within 5-7 business days (2 for Premium members).",
+    "expected_source": "01_return_policy.md",
+    "expected_escalation": false,
+    "difficulty": "hard",
+    "category": "returns_vocab_mismatch"
+  },
+  {
+    "id": "b14",
+    "query": "I'm a corporate customer — can I return part of a bulk order?",
+    "expected_intent": "return_or_refund",
+    "expected_answer": "Corporate bulk order returns require a minimum of 5 units for partial returns. If you're returning fewer than 5 units, this is not accepted. The 30-day return window applies to corporate orders regardless of individual Premium membership. Refunds go to the corporate account. Contact your dedicated account manager for assistance.",
+    "expected_source": "12_corporate_gifting.md",
+    "expected_escalation": true,
+    "difficulty": "hard",
+    "category": "returns_corporate"
+  },
+  {
+    "id": "b15",
+    "query": "I think someone hacked my account — there's an order I didn't place",
+    "expected_intent": "general",
+    "expected_answer": "This is a serious security issue. Suspicious login attempts trigger an automatic account lock requiring identity verification through your registered email. Contact Acmera support immediately with your account details. You should also change your password and review your account settings. This requires urgent human assistance.",
+    "expected_source": "10_account_management.md",
+    "expected_escalation": true,
+    "difficulty": "hard",
+    "category": "account_security"
+  }
+]

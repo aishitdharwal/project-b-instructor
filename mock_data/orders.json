@@ -1,0 +1,10 @@
+[
+  {"order_id": "ORD-445521", "customer_id": "CUST001", "product": "Acmera ProBook X15", "price": 78999, "date": "2025-09-02", "delivery_date": "2025-09-05", "status": "delivered", "promotional": false},
+  {"order_id": "ORD-445890", "customer_id": "CUST002", "product": "SmartHome Hub Pro", "price": 8999, "date": "2025-10-15", "delivery_date": "2025-10-18", "status": "delivered", "promotional": false},
+  {"order_id": "ORD-446112", "customer_id": "CUST003", "product": "Acmera Pixel S24", "price": 34999, "date": "2025-10-25", "delivery_date": "2025-10-28", "status": "delivered", "promotional": true},
+  {"order_id": "ORD-446500", "customer_id": "CUST004", "product": "Acmera SoundPods Pro", "price": 2499, "date": "2025-11-01", "delivery_date": "2025-11-04", "status": "delivered", "promotional": true},
+  {"order_id": "ORD-446801", "customer_id": "CUST005", "product": "Acmera ProBook Air 14", "price": 54999, "date": "2025-11-10", "delivery_date": "2025-11-13", "status": "delivered", "promotional": false},
+  {"order_id": "ORD-447200", "customer_id": "CUST006", "product": "Acmera SoundBar X200", "price": 12999, "date": "2025-11-20", "delivery_date": null, "status": "shipped", "promotional": false},
+  {"order_id": "ORD-447555", "customer_id": "CUST007", "product": "SmartHome Camera 360", "price": 3999, "date": "2025-11-25", "delivery_date": null, "status": "processing", "promotional": true},
+  {"order_id": "ORD-447890", "customer_id": "CUST001", "product": "Acmera SoundPods Pro", "price": 4999, "date": "2025-12-01", "delivery_date": "2025-12-03", "status": "delivered", "promotional": true}
+]
