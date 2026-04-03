@@ -1,5 +1,5 @@
 """
-Project B Evaluation Harness — Session 2 (Instructor Version)
+Project B Evaluation Harness — Session 1 (Instructor Version)
 
 4-dimensional eval for the support pipeline:
   1. Classification accuracy — did it identify the right intent?
@@ -9,8 +9,6 @@ Project B Evaluation Harness — Session 2 (Instructor Version)
 
 Run:
   python scripts/eval_harness.py
-  python scripts/eval_harness.py --save-baseline
-  python scripts/eval_harness.py --category returns
 """
 import os
 import sys
@@ -24,7 +22,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
-from langfuse import Langfuse
 from dotenv import load_dotenv
 
 from support_pipeline import handle_query
@@ -33,7 +30,6 @@ load_dotenv()
 
 client = OpenAI()
 console = Console()
-langfuse = Langfuse()
 
 SCRIPT_DIR = os.path.dirname(__file__)
 
@@ -140,36 +136,19 @@ def score_color(val: float) -> str:
     return "red"
 
 
-def attach_langfuse_scores(trace_id: str, classification: bool, retrieval_hit: bool,
-                            faithfulness: dict, correctness: dict, routing: bool):
-    try:
-        langfuse.score(trace_id=trace_id, name="classification_correct", value=1.0 if classification else 0.0)
-        langfuse.score(trace_id=trace_id, name="retrieval_hit", value=1.0 if retrieval_hit else 0.0)
-        langfuse.score(trace_id=trace_id, name="faithfulness", value=faithfulness["score"] / 5,
-                       comment=faithfulness["reason"])
-        langfuse.score(trace_id=trace_id, name="correctness", value=correctness["score"] / 5,
-                       comment=correctness["reason"])
-        langfuse.score(trace_id=trace_id, name="routing_correct", value=1.0 if routing else 0.0)
-    except Exception as e:
-        console.print(f"[dim red]LangFuse score error: {e}[/]")
-
-
 # =========================================================================
 # EVAL RUNNER
 # =========================================================================
 
-def run_eval(save_baseline: bool = False, attach_scores: bool = True, category_filter: str = None):
+def run_eval():
 
     with open(os.path.join(SCRIPT_DIR, "golden_dataset.json")) as f:
         queries = json.load(f)
 
-    if category_filter:
-        queries = [q for q in queries if q.get("category", "").startswith(category_filter)]
-
     console.print(Panel(
         f"[bold]Project B — Running evaluation on {len(queries)} queries[/]\n"
         f"[dim]4 dimensions: classification + retrieval + faithfulness + routing[/]",
-        title="[bold cyan]Project B Eval Harness[/]",
+        title="[bold cyan]Project B Eval Harness — Session 1[/]",
         border_style="cyan",
     ))
 
@@ -212,11 +191,6 @@ def run_eval(save_baseline: bool = False, attach_scores: bool = True, category_f
         routing_ok = check_routing(PREDICTED_ESCALATION, q["expected_escalation"])
         if routing_ok:
             routing_correct += 1
-
-        if attach_scores and result.get("trace_id"):
-            attach_langfuse_scores(
-                result["trace_id"], cls_correct, hit, faith, correct, routing_ok
-            )
 
         results.append({
             "id": q["id"],
@@ -358,30 +332,9 @@ def run_eval(save_baseline: bool = False, attach_scores: bool = True, category_f
 
     console.print(f"\n[dim]Results saved → {output_path}[/]")
 
-    if attach_scores:
-        langfuse.flush()
-        console.print(f"[dim]Scores attached to {total} LangFuse traces[/]")
-
-    if save_baseline:
-        baseline_path = os.path.join(SCRIPT_DIR, "baseline_scores.json")
-        with open(baseline_path, "w") as f:
-            json.dump({
-                "description": "Project B baseline — naive pipeline, Session 2",
-                "total_queries": total,
-                **summary,
-            }, f, indent=2)
-        console.print(f"[bold green]Baseline saved → {baseline_path}[/]")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--save-baseline", action="store_true")
-    parser.add_argument("--no-langfuse", action="store_true")
-    parser.add_argument("--category", type=str)
     args = parser.parse_args()
 
-    run_eval(
-        save_baseline=args.save_baseline,
-        attach_scores=not args.no_langfuse,
-        category_filter=args.category,
-    )
+    run_eval()
