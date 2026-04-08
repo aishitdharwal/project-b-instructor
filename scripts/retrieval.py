@@ -1,10 +1,13 @@
 """
-Self-contained retrieval layer for Project B (Instructor Version).
+Self-contained retrieval layer for Project B — Instructor version, Session 4.
 
-Duplicated from Project A's rag.py so Project B is a standalone repo.
-In Week 3, this gets replaced by the LangGraph agent's tool-based retrieval.
+Includes:
+  retrieve()              — standard dense retrieval (Week 1)
+  retrieve_filtered()     — metadata-filtered retrieval (Session 3)
+  deduplicate_chunks()    — FAQ dedup by Jaccard similarity (Session 4)
+  retrieve_with_dedup()   — retrieve + dedup in one call (Session 4)
 
-Not meant to be run directly — imported by support_pipeline.py and eval_harness.py.
+In Week 3, this module gets replaced by LangGraph tool-based retrieval.
 """
 import os
 import json
@@ -17,7 +20,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = OpenAI()
-
 TOP_K = 5
 
 
@@ -59,25 +61,78 @@ def retrieve(query_embedding, top_k=TOP_K):
         })
     cur.close()
     conn.close()
-
     langfuse_context.update_current_observation(metadata={
-        "top_k": top_k,
-        "results": [{"doc_name": r["doc_name"], "chunk_index": r["chunk_index"],
-                     "similarity": r["similarity"]} for r in results],
+        "top_k": top_k, "filter": None,
+        "results": [{"doc_name": r["doc_name"], "similarity": r["similarity"]} for r in results],
     })
     return results
 
 
+@observe(name="retrieval_filtered")
+def retrieve_filtered(query_embedding, doc_names: list[str], top_k=TOP_K):
+    """Session 3: metadata-filtered retrieval."""
+    conn = get_connection()
+    cur = conn.cursor()
+    placeholders = ",".join(["%s"] * len(doc_names))
+    cur.execute(
+        f"""SELECT id, doc_name, chunk_index, content, metadata,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM chunks WHERE doc_name IN ({placeholders})
+            ORDER BY embedding <=> %s::vector LIMIT %s""",
+        (query_embedding, *doc_names, query_embedding, top_k),
+    )
+    results = []
+    for row in cur.fetchall():
+        results.append({
+            "id": row[0], "doc_name": row[1], "chunk_index": row[2],
+            "content": row[3],
+            "metadata": row[4] if isinstance(row[4], dict) else json.loads(row[4]),
+            "similarity": round(float(row[5]), 4),
+        })
+    cur.close()
+    conn.close()
+    langfuse_context.update_current_observation(metadata={
+        "top_k": top_k, "filter": doc_names,
+        "results": [{"doc_name": r["doc_name"], "similarity": r["similarity"]} for r in results],
+    })
+    return results
+
+
+def deduplicate_chunks(chunks: list, similarity_threshold: float = 0.75) -> list:
+    """Session 4: Remove near-duplicate chunks (Jaccard word overlap)."""
+    seen_words = []
+    unique = []
+    for chunk in chunks:
+        words = set(chunk["content"].lower().split())
+        is_dup = any(
+            len(words & seen) / max(len(words | seen), 1) >= similarity_threshold
+            for seen in seen_words if words and seen
+        )
+        if not is_dup:
+            unique.append(chunk)
+            seen_words.append(words)
+    return unique
+
+
+def retrieve_with_dedup(query_embedding, doc_names: list[str] | None = None,
+                        top_k: int = TOP_K + 3) -> list:
+    """Session 4: Retrieve more candidates, deduplicate, return top_k."""
+    candidates_needed = top_k + 3
+    if doc_names:
+        candidates = retrieve_filtered(query_embedding, doc_names, top_k=candidates_needed)
+    else:
+        candidates = retrieve(query_embedding, top_k=candidates_needed)
+    return deduplicate_chunks(candidates)[:top_k]
+
+
 @observe(name="context_assembly")
 def assemble_context(retrieved_chunks):
-    context_parts = []
-    for chunk in retrieved_chunks:
-        context_parts.append(
-            f"[Source: {chunk['doc_name']}, Chunk {chunk['chunk_index']}]\n{chunk['content']}"
-        )
-    context = "\n\n---\n\n".join(context_parts)
+    parts = [
+        f"[Source: {c['doc_name']}, Chunk {c['chunk_index']}]\n{c['content']}"
+        for c in retrieved_chunks
+    ]
+    context = "\n\n---\n\n".join(parts)
     langfuse_context.update_current_observation(metadata={
-        "num_chunks": len(retrieved_chunks),
-        "total_context_chars": len(context),
+        "num_chunks": len(retrieved_chunks), "total_context_chars": len(context),
     })
     return context
