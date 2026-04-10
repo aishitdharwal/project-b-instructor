@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Acmera Project B — ECS Service Stack (LangGraph Support Agent).
+  Imports shared infrastructure from the base stack and deploys:
+    Application Load Balancer (internet-facing, HTTP port 80)
+    ECS Fargate service running the FastAPI Agent app (port 8000)
+    Auto-scaling policy (CPU-based, 1–3 tasks)
+
+  Prerequisites: base stack (acmera-base) must be deployed and corpus ingested first.
+  Run project-a's deploy.sh before this if starting from scratch.
+
+Parameters:
+
+  ImageUri:
+    Type: String
+    Description: >
+      Full ECR image URI including tag.
+      Example: 123456789.dkr.ecr.ap-south-1.amazonaws.com/acmera-project-b:latest
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  TaskCpu:
+    Type: String
+    Default: '1024'
+    Description: 1 vCPU — sufficient for LangGraph agent + FastAPI.
+
+  TaskMemory:
+    Type: String
+    Default: '2048'
+    Description: 2 GB memory.
+
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # APPLICATION LOAD BALANCER
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: acmera-project-b-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !ImportValue AcmeraPublicSubnet1Id
+        - !ImportValue AcmeraPublicSubnet2Id
+      SecurityGroups:
+        - !ImportValue AcmeraALBSecurityGroupId
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: acmera-project-b-tg
+      Protocol: HTTP
+      Port: 8000
+      TargetType: ip
+      VpcId: !ImportValue AcmeraVPCId
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ECS TASK DEFINITION
+  # Agent tasks need a longer timeout than RAG tasks — the LangGraph loop
+  # can make 2–3 tool calls before responding. TaskMemory 2GB is sufficient.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: acmera-project-b
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !ImportValue AcmeraTaskExecutionRoleArn
+      TaskRoleArn: !ImportValue AcmeraTaskRoleArn
+      ContainerDefinitions:
+        - Name: project-b
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+
+          Environment:
+            - Name: PG_HOST
+              Value: !ImportValue AcmeraAuroraEndpoint
+            - Name: PG_PORT
+              Value: !ImportValue AcmeraAuroraPort
+            - Name: PG_USER
+              Value: !ImportValue AcmeraAuroraUsername
+            - Name: PG_DATABASE
+              Value: !ImportValue AcmeraAuroraDBName
+            - Name: LANGFUSE_HOST
+              Value: https://cloud.langfuse.com
+
+          Secrets:
+            - Name: PG_PASSWORD
+              ValueFrom: !Sub
+                - ${SecretArn}:password::
+                - SecretArn: !ImportValue AcmeraAuroraSecretArn
+            - Name: OPENAI_API_KEY
+              ValueFrom: /acmera/openai-api-key
+            - Name: LANGFUSE_PUBLIC_KEY
+              ValueFrom: /acmera/langfuse-public-key
+            - Name: LANGFUSE_SECRET_KEY
+              ValueFrom: /acmera/langfuse-secret-key
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue AcmeraProjectBLogGroup
+              awslogs-region: ap-south-1
+              awslogs-stream-prefix: ecs
+
+          HealthCheck:
+            Command: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 15
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ECS SERVICE
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: acmera-project-b-service
+      Cluster: !ImportValue AcmeraECSClusterArn
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !ImportValue AcmeraPrivateSubnet1Id
+            - !ImportValue AcmeraPrivateSubnet2Id
+          SecurityGroups:
+            - !ImportValue AcmeraECSSecurityGroupId
+          AssignPublicIp: DISABLED
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: project-b
+          ContainerPort: 8000
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DeploymentController:
+        Type: ECS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUTO-SCALING
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: 1
+      MaxCapacity: 3
+      ResourceId: !Sub service/${AcmeraECSClusterName}/${ECSService.Name}
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+
+  ScaleOutPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: acmera-project-b-scale-out
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleInCooldown: 900
+        ScaleOutCooldown: 120
+
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  ServiceURL:
+    Description: Project B public URL
+    Value: !Sub http://${ALB.DNSName}
+    Export:
+      Name: AcmeraProjectBServiceURL
+
+  ECSServiceName:
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: AcmeraProjectBECSServiceName
+
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+    Export:
+      Name: AcmeraProjectBTaskDefinitionArn

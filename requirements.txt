@@ -6,3 +6,5 @@ python-dotenv
 rich
 langgraph
 langchain-core
+fastapi
+uvicorn[standard]
