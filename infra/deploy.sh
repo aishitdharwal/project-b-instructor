@@ -102,29 +102,23 @@ ok "ECR target:  ${ECR_URI}:${IMAGE_TAG}"
 # project-a was deployed first. We still check in case deploying standalone.
 # ─────────────────────────────────────────────────────────────────────────────
 if ! $REDEPLOY; then
-  step "Ensuring API keys are in Secrets Manager..."
+  step "Ensuring API keys are in SSM Parameter Store..."
 
-  store_secret() {
+  store_param() {
     local name="/acmera/${1}"
     local value="${2}"
-    if aws secretsmanager describe-secret --secret-id "${name}" --region "${REGION}" &>/dev/null; then
-      aws secretsmanager put-secret-value \
-        --secret-id     "${name}" \
-        --secret-string "${value}" \
-        --region        "${REGION}" >/dev/null
-      ok "Updated: ${name}"
-    else
-      aws secretsmanager create-secret \
-        --name          "${name}" \
-        --secret-string "${value}" \
-        --region        "${REGION}" >/dev/null
-      ok "Created: ${name}"
-    fi
+    aws ssm put-parameter \
+      --name      "${name}" \
+      --value     "${value}" \
+      --type      SecureString \
+      --overwrite \
+      --region    "${REGION}" >/dev/null
+    ok "Stored: ${name}"
   }
 
-  store_secret "openai-api-key"      "${OPENAI_API_KEY}"
-  store_secret "langfuse-public-key" "${LANGFUSE_PUBLIC_KEY}"
-  store_secret "langfuse-secret-key" "${LANGFUSE_SECRET_KEY}"
+  store_param "openai-api-key"      "${OPENAI_API_KEY}"
+  store_param "langfuse-public-key" "${LANGFUSE_PUBLIC_KEY}"
+  store_param "langfuse-secret-key" "${LANGFUSE_SECRET_KEY}"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
