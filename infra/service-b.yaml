@@ -117,9 +117,7 @@ Resources:
 
           Secrets:
             - Name: PG_PASSWORD
-              ValueFrom: !Sub
-                - ${SecretArn}:password::
-                - SecretArn: !ImportValue AcmeraAuroraSecretArn
+              ValueFrom: /acmera/db-password
             - Name: OPENAI_API_KEY
               ValueFrom: /acmera/openai-api-key
             - Name: LANGFUSE_PUBLIC_KEY
