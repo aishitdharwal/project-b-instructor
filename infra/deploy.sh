@@ -157,6 +157,30 @@ aws cloudformation deploy \
 ok "Service stack deployed"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# STEP 3b — FORCE NEW ECS DEPLOYMENT
+# CloudFormation won't redeploy ECS if the ImageUri tag didn't change (e.g.
+# always using :latest). Force a new deployment so ECS pulls the fresh image.
+# ─────────────────────────────────────────────────────────────────────────────
+step "Forcing new ECS deployment (to pick up latest image)..."
+
+ECS_CLUSTER=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_BASE}" \
+  --query      'Stacks[0].Outputs[?OutputKey==`ECSClusterName`].OutputValue' \
+  --output     text --region "${REGION}")
+
+ECS_SERVICE=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_SERVICE}" \
+  --query      'Stacks[0].Outputs[?OutputKey==`ECSServiceName`].OutputValue' \
+  --output     text --region "${REGION}")
+
+aws ecs update-service \
+  --cluster            "${ECS_CLUSTER}" \
+  --service            "${ECS_SERVICE}" \
+  --force-new-deployment \
+  --region             "${REGION}" >/dev/null
+ok "New deployment triggered"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STEP 4 — WAIT FOR SERVICE STABLE
 # ─────────────────────────────────────────────────────────────────────────────
 step "Waiting for ECS service to be stable..."

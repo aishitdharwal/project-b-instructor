@@ -14,9 +14,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY scripts/ ./scripts/
-COPY corpus/  ./corpus/
-COPY app.py   .
+COPY scripts/   ./scripts/
+COPY corpus/    ./corpus/
+COPY mock_data/ ./mock_data/
+COPY app.py     .
 
 # Ensure scripts/ is importable as a package
 RUN touch scripts/__init__.py 2>/dev/null || true
