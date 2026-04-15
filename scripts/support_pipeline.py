@@ -1,5 +1,5 @@
 """
-Project B: Customer Support Pipeline — Instructor version, Sessions 3 & 4.
+Project B: Customer Support Pipeline — Instructor version, Sessions 3, 4 & 7.
 
 Session 3 additions:
   - query_classifier.py determines which tool to call
@@ -9,8 +9,12 @@ Session 3 additions:
 
 Session 4 additions:
   - retrieve_with_dedup() — FAQ deduplication before context assembly
-  - Finalized TOOL_DESCRIPTIONS for Week 3 LangGraph handoff
-  - Rich output throughout
+  - Finalized TOOL_DESCRIPTIONS for LangGraph handoff
+
+Session 7 additions:
+  - retrieve_policy() now uses retrieve_advanced() — full advanced pipeline:
+    BM25 + dense hybrid → Cohere rerank → context assembly (dedup + expand + compress)
+  - Same intent-based doc_filter preserved; applied to both dense and BM25 search
 
 Run: python -m scripts.support_pipeline
 """
@@ -28,7 +32,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
-from scripts.retrieval import embed_query, retrieve, retrieve_filtered, retrieve_with_dedup, assemble_context
+from scripts.retrieval import embed_query, retrieve, retrieve_filtered, retrieve_with_dedup, assemble_context, retrieve_advanced
 from scripts.query_classifier import classify_tool, classify_tools_needed, TOOL_DESCRIPTIONS
 from scripts.mock_tools import lookup_order, lookup_account, format_tool_result
 
@@ -88,14 +92,19 @@ def classify_intent(query: str) -> str:
 
 @observe(name="retrieve_policy")
 def retrieve_policy(query: str, intent: str) -> tuple[str, list]:
+    """
+    Session 7: upgraded to full advanced pipeline.
+    hybrid (BM25 + dense + RRF) → Cohere rerank → context assembly
+    Intent-based doc_filter is passed through to both dense and BM25 search.
+    """
     doc_filter = INTENT_DOC_FILTERS.get(intent)
     query_embedding = embed_query(query)
-    chunks = retrieve_with_dedup(query_embedding, doc_names=doc_filter)
+    context, chunks = retrieve_advanced(query, query_embedding, doc_names=doc_filter)
     if not chunks:
-        chunks = retrieve_with_dedup(query_embedding, doc_names=None)
-    context = assemble_context(chunks)
+        context, chunks = retrieve_advanced(query, query_embedding, doc_names=None)
     langfuse_context.update_current_observation(metadata={
-        "intent": intent, "doc_filter": doc_filter, "num_chunks": len(chunks),
+        "intent": intent, "doc_filter": doc_filter,
+        "num_chunks": len(chunks), "pipeline": "advanced",
     })
     return context, chunks
 

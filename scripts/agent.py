@@ -1,24 +1,34 @@
 """
-LangGraph Support Agent — Instructor version, Session 5.
+LangGraph Support Agent — Instructor version, Session 7.
 
-Replaces the single-shot support_pipeline with an agentic reasoning loop:
+Session 5 graph:
+    classify → tool_call → evaluate → respond / escalate
 
-    classify → tool_call → evaluate → tool_call (again?) → respond
-                                    ↘ escalate
+Session 7 graph:
+    guardrail → classify → tool_call → evaluate → respond / escalate
+        ↓ (unsafe)
+      reject   ← zero LLM cost, canned response
+
+Session 7 additions:
+  - guardrail_node: OpenAI Moderation + Instructor PII detection (check_input)
+  - reject_node: immediate safe response, no pipeline runs
+  - EscalationPacket: Instructor-typed structured escalation handoff
+    (replaces manual json.dumps — human agent gets a typed, validated packet)
+  - Output guard on respond_node: check_output scans answer before return
 
 Key concepts taught:
   - StateGraph with a typed state object (everything the agent knows)
   - Conditional edges as routing logic (the agent decides what happens next)
   - Loop guard: never call more than 3 tools on one query
-  - Structured escalation — hand off with full context to human agent
+  - Structured escalation — typed handoff via Instructor
   - Per-node LangFuse tracing for full trajectory observability
   - Per-call token cost tracking
 
 Design decisions:
+  - guardrail_node runs BEFORE classify — unsafe queries never hit LLM logic
   - evaluate_node() is a GRAPH NODE — it runs the LLM and writes verdict to state
   - _route_from_evaluate() is the ROUTING FUNCTION — reads state["verdict"]
-    This separation is cleaner than using one function for both purposes.
-  - next_tool is stored in AgentState so tool_node can pick it up on re-entry
+  - EscalationPacket is extracted via Instructor from the agent's gathered context
 
 Run: python -m scripts.agent
 """
@@ -38,13 +48,19 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+import instructor
+from pydantic import BaseModel
+from typing import Literal
+
 from scripts.support_pipeline import classify_intent, retrieve_policy, generate_response
 from scripts.query_classifier import classify_tool
 from scripts.mock_tools import lookup_order, lookup_account, format_tool_result
+from scripts.guardrails import check_input, check_output
 
 load_dotenv()
 
 client = OpenAI()
+instructor_client = instructor.from_openai(OpenAI())
 langfuse = Langfuse()
 console = Console()
 
@@ -64,30 +80,104 @@ def _token_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float
 
 
 # =========================================================================
+# SESSION 7: STRUCTURED ESCALATION PACKET
+# Replaces manual json.dumps() in escalate_node.
+# Instructor extracts this typed model from the agent's gathered context.
+# =========================================================================
+
+class EscalationPacket(BaseModel):
+    query: str
+    intent: str
+    tools_called: list[str]
+    escalation_reason: Literal[
+        "billing_dispute",
+        "security_concern",
+        "policy_exception",
+        "human_judgment_required",
+    ]
+    urgency: Literal["low", "medium", "high"]
+    context_summary: str
+    steps_taken: int
+
+
+# =========================================================================
 # STATE — everything the agent carries through the reasoning loop
 # =========================================================================
 
 class AgentState(TypedDict):
-    query:          str                              # original query, never changes
-    intent:         str                              # set by classify_node
-    tool_results:   Annotated[list, operator.add]    # accumulates each tool call
-    final_answer:   str                              # set by respond_node / escalate_node
-    should_escalate: bool                            # True if escalate_node ran
-    steps_taken:    int                              # incremented by tool_node (loop guard)
-    tools_called:   Annotated[list, operator.add]    # trajectory for observability
-    verdict:        str                              # set by evaluate_node (routing key)
-    next_tool:      str                              # set by evaluate_node when more info needed
+    query:           str                              # original query, never changes
+    intent:          str                              # set by classify_node
+    tool_results:    Annotated[list, operator.add]    # accumulates each tool call
+    final_answer:    str                              # set by respond_node / escalate_node
+    should_escalate: bool                             # True if escalate_node ran
+    steps_taken:     int                              # incremented by tool_node (loop guard)
+    tools_called:    Annotated[list, operator.add]    # trajectory for observability
+    verdict:         str                              # set by evaluate_node (routing key)
+    next_tool:       str                              # set by evaluate_node when more info needed
+    guard_result:    dict                             # set by guardrail_node (Session 7)
+
+
+# =========================================================================
+# NODE 0 — GUARDRAIL  (Session 7)
+# Runs BEFORE classify. Two checks:
+#   1. OpenAI Moderation API — catches unsafe content
+#   2. Instructor PII detection — anonymises query before it hits any tool
+# If unsafe → routes to reject_node (no LLM cost, canned response).
+# If safe   → routes to classify_node with anonymised_query in state.
+# =========================================================================
+
+@observe(name="agent_guardrail")
+def guardrail_node(state: AgentState) -> dict:
+    guard = check_input(state["query"])
+    langfuse_context.update_current_observation(
+        input={"query": state["query"][:100]},
+        output={"safe": guard.safe, "pii": guard.pii_entities,
+                "reason": guard.rejection_reason},
+        metadata={"node": "guardrail", "contains_pii": guard.contains_pii},
+    )
+    return {"guard_result": guard.model_dump()}
+
+
+def _route_from_guardrail(state: AgentState) -> str:
+    """Route to reject if unsafe, classify if safe."""
+    guard = state.get("guard_result", {})
+    return "reject" if not guard.get("safe", True) else "classify"
+
+
+@observe(name="agent_reject")
+def reject_node(state: AgentState) -> dict:
+    """
+    Zero-cost rejection — no LLM call.
+    Returns a canned safe response when the guardrail blocks the query.
+    """
+    guard = state.get("guard_result", {})
+    reason = guard.get("rejection_reason", "")
+    langfuse_context.update_current_observation(
+        output="rejected",
+        metadata={"node": "reject", "reason": reason},
+    )
+    return {
+        "final_answer": (
+            "I'm sorry, I'm unable to process this request. "
+            "Please contact our support team directly at support@acmera.com."
+        ),
+        "should_escalate": False,
+    }
 
 
 # =========================================================================
 # NODE 1 — CLASSIFY
 # Determines the intent of the customer query.
 # Re-uses the same classify_intent() from support_pipeline.
+# Uses anonymized_query from guard_result so PII is not passed to the LLM.
 # =========================================================================
 
 @observe(name="agent_classify")
 def classify_node(state: AgentState) -> dict:
-    intent = classify_intent(state["query"])
+    # Use anonymized query from guardrail to avoid PII in LLM calls
+    guard = state.get("guard_result", {})
+    query = guard.get("anonymized_query") or state["query"]
+    intent = classify_intent(query)
     langfuse_context.update_current_observation(
         output=intent,
         metadata={"node": "classify", "step": 0},
@@ -276,64 +366,110 @@ def respond_node(state: AgentState) -> dict:
 
     answer = generate_response(state["query"], context, state["intent"])
 
+    # Session 7: scan output for PII / sensitive data leakage
+    out_guard = check_output(answer)
+    final = out_guard.clean_answer  # redacted version if any leak detected
+
     langfuse_context.update_current_observation(
-        output=answer[:200],
-        metadata={"node": "respond", "total_steps": state["steps_taken"]},
+        output=final[:200],
+        metadata={
+            "node": "respond",
+            "total_steps": state["steps_taken"],
+            "output_safe": out_guard.safe,
+            "pii_leaked": out_guard.pii_leaked,
+        },
     )
 
-    return {"final_answer": answer}
+    return {"final_answer": final}
 
 
 # =========================================================================
-# NODE 5 — ESCALATE
-# Packages everything the agent found into a structured handoff for a human.
-# The human gets: what the customer asked, what was found, why escalating.
+# NODE 5 — ESCALATE  (Session 7: Instructor-typed EscalationPacket)
+# Packages everything the agent found into a typed handoff for a human.
+# Instructor extracts the structured packet from the agent's context —
+# no manual json building, validated types, Literal-constrained reason/urgency.
 # =========================================================================
 
 @observe(name="agent_escalate")
 def escalate_node(state: AgentState) -> dict:
-    packet = {
-        "query": state["query"],
-        "intent": state["intent"],
-        "tools_called": state.get("tools_called", []),
-        "information_gathered": [
-            {"tool": r["tool"], "summary": r["result"][:200]}
-            for r in state["tool_results"]
+    tool_summary = "\n".join([
+        f"[{r['tool']}]: {r['result'][:200]}" for r in state["tool_results"]
+    ])
+
+    packet: EscalationPacket = instructor_client.chat.completions.create(
+        model=EVALUATION_MODEL,
+        response_model=EscalationPacket,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Create a structured escalation packet for a human support agent. "
+                    "Be concise. context_summary should be 1-2 sentences max."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Customer query: {state['query']}\n"
+                    f"Detected intent: {state['intent']}\n"
+                    f"Tools called: {state.get('tools_called', [])}\n"
+                    f"Information gathered:\n{tool_summary}\n"
+                    f"Steps taken: {state['steps_taken']}"
+                ),
+            },
         ],
-        "escalation_reason": "Requires human judgment",
-        "steps_taken": state["steps_taken"],
-    }
+    )
 
     langfuse_context.update_current_observation(
-        output=json.dumps(packet)[:300],
-        metadata={"node": "escalate"},
+        output=packet.model_dump_json()[:300],
+        metadata={
+            "node": "escalate",
+            "escalation_reason": packet.escalation_reason,
+            "urgency": packet.urgency,
+        },
     )
 
     return {
-        "final_answer": f"[ESCALATED]\n{json.dumps(packet, indent=2)}",
+        "final_answer": f"[ESCALATED]\n{packet.model_dump_json(indent=2)}",
         "should_escalate": True,
     }
 
 
 # =========================================================================
-# BUILD THE GRAPH
+# BUILD THE GRAPH  (Session 7: guardrail at the front)
+#
+# guardrail ──safe──► classify ──► tool_call ──► evaluate ──► respond
+#     │                                               │
+#   unsafe                                         escalate
+#     ▼
+#   reject
 # =========================================================================
 
 graph = StateGraph(AgentState)
 
+graph.add_node("guardrail", guardrail_node)   # Session 7
+graph.add_node("reject",    reject_node)       # Session 7
 graph.add_node("classify",  classify_node)
 graph.add_node("tool_call", tool_node)
 graph.add_node("evaluate",  evaluate_node)
 graph.add_node("respond",   respond_node)
 graph.add_node("escalate",  escalate_node)
 
-graph.set_entry_point("classify")
-graph.add_edge("classify",  "tool_call")   # always call a tool after classifying
-graph.add_edge("tool_call", "evaluate")    # always evaluate after every tool call
+graph.set_entry_point("guardrail")
+
+graph.add_conditional_edges(                   # Session 7
+    "guardrail",
+    _route_from_guardrail,
+    {"reject": "reject", "classify": "classify"},
+)
+
+graph.add_edge("reject",    END)               # Session 7
+graph.add_edge("classify",  "tool_call")
+graph.add_edge("tool_call", "evaluate")
 
 graph.add_conditional_edges(
-    "evaluate",            # from this node
-    _route_from_evaluate,  # call this function to get the routing key
+    "evaluate",
+    _route_from_evaluate,
     {
         "respond":   "respond",
         "tool_call": "tool_call",
@@ -415,6 +551,8 @@ if __name__ == "__main__":
         ("Where is my order ORD-445521?",                       "order lookup"),
         ("I'm Premium Gold — do I get extended returns?",       "account + policy"),
         ("My card was charged twice. I need a refund now.",     "escalation trigger"),
+        ("My email is test@gmail.com, I want to return this",   "PII in query → anonymised"),
+        ("I will hurt someone if this isn't resolved",          "moderation → rejected"),
     ]
 
     table = Table(title="Agent Test Runs", box=box.SIMPLE, title_style="bold green")

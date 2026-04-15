@@ -8,3 +8,12 @@ langgraph
 langchain-core
 fastapi
 uvicorn[standard]
+# Session 7
+rank_bm25
+cohere
+instructor
+litellm
+ragas
+datasets
+redis
+langchain-openai
