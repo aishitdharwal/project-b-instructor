@@ -120,6 +120,8 @@ Resources:
               ValueFrom: /acmera/db-password
             - Name: OPENAI_API_KEY
               ValueFrom: /acmera/openai-api-key
+            - Name: COHERE_API_KEY
+              ValueFrom: /acmera/cohere-api-key
             - Name: LANGFUSE_PUBLIC_KEY
               ValueFrom: /acmera/langfuse-public-key
             - Name: LANGFUSE_SECRET_KEY

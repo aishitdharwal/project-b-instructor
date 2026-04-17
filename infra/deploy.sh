@@ -79,7 +79,7 @@ command -v aws    &>/dev/null || die "AWS CLI not found."
 command -v docker &>/dev/null || die "Docker not found."
 
 if ! $REDEPLOY; then
-  for var in OPENAI_API_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
+  for var in OPENAI_API_KEY COHERE_API_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
     [[ -z "${!var:-}" ]] && die "Missing required environment variable: ${var}"
   done
 fi
@@ -117,6 +117,7 @@ if ! $REDEPLOY; then
   }
 
   store_param "openai-api-key"      "${OPENAI_API_KEY}"
+  store_param "cohere-api-key"      "${COHERE_API_KEY}"
   store_param "langfuse-public-key" "${LANGFUSE_PUBLIC_KEY}"
   store_param "langfuse-secret-key" "${LANGFUSE_SECRET_KEY}"
 fi
