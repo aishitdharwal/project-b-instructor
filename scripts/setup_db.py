@@ -44,9 +44,22 @@ def setup():
         WITH (m = 16, ef_construction = 64);
     """)
 
+    # Feedback table — shared with project-a (same DB)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id         SERIAL PRIMARY KEY,
+            trace_id   TEXT        NOT NULL,
+            query      TEXT,
+            rating     SMALLINT    NOT NULL,
+            comment    TEXT,
+            source     TEXT        DEFAULT 'project-b',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    """)
+
     cur.close()
     conn.close()
-    print("Database setup complete.")
+    print("Database setup complete. Tables 'chunks' and 'feedback' created.")
 
 
 if __name__ == "__main__":

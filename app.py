@@ -35,6 +35,7 @@ class QueryRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     trace_id: str
     rating: int          # +1 = thumbs up, -1 = thumbs down
+    query: str = ""
     comment: str = ""
 
 
@@ -64,19 +65,44 @@ def query_endpoint(req: QueryRequest):
 
 @app.post("/feedback")
 def feedback_endpoint(req: FeedbackRequest):
+    import psycopg2
     from langfuse import Langfuse
+
+    # 1. LangFuse — attaches score to the trace for dashboard visibility
     try:
         lf = Langfuse()
         lf.score(
             trace_id=req.trace_id,
             name="user_feedback",
-            value=req.rating,           # +1 or -1
+            value=req.rating,
             comment=req.comment or None,
         )
         lf.flush()
-        return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"LangFuse error: {e}")
+
+    # 2. RDS — persists feedback for SQL querying and future analysis
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("PG_HOST", "localhost"),
+            port=int(os.getenv("PG_PORT", "5433")),
+            user=os.getenv("PG_USER", "workshop"),
+            password=os.getenv("PG_PASSWORD", "workshop123"),
+            dbname=os.getenv("PG_DATABASE", "acmera_kb"),
+        )
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO feedback (trace_id, query, rating, comment, source)
+               VALUES (%s, %s, %s, %s, 'project-b')""",
+            (req.trace_id, req.query or None, req.rating, req.comment or None),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -507,10 +533,11 @@ PROJECT_B_HTML = """<!DOCTYPE html>
       else               downBtn.classList.add("selected-down");
 
       try {
+        const query = document.getElementById("queryInput").value.trim();
         await fetch("/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trace_id: currentTraceId, rating }),
+          body: JSON.stringify({ trace_id: currentTraceId, rating, query }),
         });
         if (thanks) thanks.style.display = "inline";
       } catch (e) {
