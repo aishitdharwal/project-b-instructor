@@ -520,16 +520,18 @@ def run_agent(query: str) -> dict:
             "elapsed_seconds": elapsed,
         },
     )
+    trace_id = langfuse_context.get_current_trace_id()
     langfuse.flush()
 
     return {
-        "query":          query,
-        "answer":         result["final_answer"],
+        "query":           query,
+        "answer":          result["final_answer"],
         "should_escalate": result["should_escalate"],
-        "steps_taken":    result["steps_taken"],
-        "tools_called":   result["tools_called"],
-        "intent":         result["intent"],
+        "steps_taken":     result["steps_taken"],
+        "tools_called":    result["tools_called"],
+        "intent":          result["intent"],
         "elapsed_seconds": elapsed,
+        "trace_id":        trace_id,
     }
 
 
