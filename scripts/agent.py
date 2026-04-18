@@ -16,6 +16,11 @@ Session 7 additions:
     (replaces manual json.dumps — human agent gets a typed, validated packet)
   - Output guard on respond_node: check_output scans answer before return
 
+Session 8 additions:
+  - LiteLLM replaces direct OpenAI call in evaluate_node() — provider-agnostic
+  - generate_response() (in support_pipeline) now uses model router, so
+    respond_node automatically benefits from gpt-4o on complex queries
+
 Key concepts taught:
   - StateGraph with a typed state object (everything the agent knows)
   - Conditional edges as routing logic (the agent decides what happens next)
@@ -38,6 +43,7 @@ import time
 from typing import TypedDict, Annotated
 import operator
 
+import litellm
 from openai import OpenAI
 from langfuse import Langfuse
 from langfuse.decorators import observe, langfuse_context
@@ -289,7 +295,9 @@ def evaluate_node(state: AgentState) -> dict:
         for r in state["tool_results"]
     ])
 
-    response = client.chat.completions.create(
+    # evaluate_node always uses gpt-4o-mini — the task is a simple
+    # classification (sufficient/escalate/need:X), not a generation
+    response = litellm.completion(
         model=EVALUATION_MODEL,
         temperature=0,
         messages=[{

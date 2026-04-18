@@ -3,14 +3,15 @@ Feedback Pipeline — Session 7 (Project B, Instructor Version)
 
 Closes the agent improvement loop:
 
-  1. run_agent_on_dataset()   — run golden dataset through run_agent()
-  2. run_ragas_eval()         — RAGAS faithfulness / answer_relevancy /
-                                context_precision / context_recall
-                                (only for policy_kb tool calls — agent answers)
-  3. find_weak_queries()      — bottom quartile or below 0.6 threshold
-  4. analyze_escalation_patterns() — group escalations by intent, find recurring
-                                     patterns that suggest missing policy coverage
-  5. compare_to_baseline()    — diff against baseline_scores.json
+  1. run_agent_on_dataset()        — run golden dataset through run_agent()
+  2. run_ragas_eval()              — RAGAS faithfulness / answer_relevancy /
+                                     context_precision / context_recall
+                                     (only for policy_kb tool calls)
+  3. find_weak_queries()           — bottom quartile or below 0.6 threshold
+  4. analyze_escalation_patterns() — group escalations by intent
+  5. compare_to_baseline()         — diff against baseline_scores.json
+  6. correlate_with_rds_feedback() — join RAGAS scores with real user ratings
+                                     from the shared RDS feedback table (Session 8)
 
 Design decisions:
   - RAGAS runs only on policy_kb results (order_tracker/account_lookup are
@@ -322,6 +323,122 @@ def analyze_escalation_patterns(results: list[dict]) -> dict:
 
 
 # =============================================================================
+# STEP 5a — Correlate RAGAS scores with real user feedback from RDS
+# =============================================================================
+
+def load_rds_feedback(source: str = "project-b") -> list[dict]:
+    """Load user feedback rows from the shared RDS feedback table."""
+    import psycopg2
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("PG_HOST", "localhost"),
+            port=int(os.getenv("PG_PORT", "5433")),
+            user=os.getenv("PG_USER", "workshop"),
+            password=os.getenv("PG_PASSWORD", "workshop123"),
+            dbname=os.getenv("PG_DATABASE", "acmera_kb"),
+        )
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT query, rating, created_at
+               FROM feedback
+               WHERE source = %s AND query IS NOT NULL
+               ORDER BY created_at DESC""",
+            (source,),
+        )
+        rows = [
+            {"query": r[0], "rating": r[1], "created_at": str(r[2])}
+            for r in cur.fetchall()
+        ]
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        console.print(f"[yellow]Could not load RDS feedback: {e}[/]")
+        return []
+
+
+def correlate_with_rds_feedback(results: list[dict], source: str = "project-b") -> list[dict]:
+    """
+    Join RAGAS pipeline results with user feedback from RDS on query text.
+
+    Each matched result gets a "user_rating" key (+1 / -1) and an
+    "agreement" key: "agree" / "disagree" / "no_data"
+    """
+    feedback_rows = load_rds_feedback(source)
+    if not feedback_rows:
+        console.print("[dim]No user feedback in RDS — skipping correlation.[/]")
+        for r in results:
+            r["user_rating"] = None
+            r["agreement"] = "no_data"
+        return results
+
+    feedback_map: dict[str, int] = {}
+    for row in feedback_rows:
+        if row["query"] and row["query"] not in feedback_map:
+            feedback_map[row["query"]] = row["rating"]
+
+    for r in results:
+        rating = feedback_map.get(r["query"])
+        r["user_rating"] = rating
+
+        scores = r.get("ragas_scores") or {}
+        vals = [v for v in scores.values() if v is not None]
+        composite = sum(vals) / len(vals) if vals else None
+
+        if rating is None or composite is None:
+            r["agreement"] = "no_data"
+        else:
+            ragas_positive = composite >= WEAK_THRESHOLD
+            user_positive = rating == 1
+            r["agreement"] = "agree" if ragas_positive == user_positive else "disagree"
+
+    return results
+
+
+def display_feedback_correlation(results: list[dict]):
+    """Show where RAGAS and user ratings agree/disagree."""
+    matched = [r for r in results if r.get("user_rating") is not None]
+    if not matched:
+        console.print("[dim]No overlapping queries between RAGAS run and RDS feedback.[/]")
+        return
+
+    agree    = [r for r in matched if r["agreement"] == "agree"]
+    disagree = [r for r in matched if r["agreement"] == "disagree"]
+
+    console.print(Panel(
+        f"[bold]Matched {len(matched)} queries with user feedback[/]\n"
+        f"  [green]Agree:[/]    {len(agree)}  "
+        f"  [red]Disagree:[/] {len(disagree)}",
+        title="[bold yellow]RAGAS vs User Feedback Correlation[/]",
+        border_style="yellow",
+    ))
+
+    if disagree:
+        table = Table(title="Disagreements — investigate these", box=box.SIMPLE,
+                      title_style="bold red")
+        table.add_column("Query", width=46)
+        table.add_column("Intent", width=16)
+        table.add_column("RAGAS", justify="center", width=8)
+        table.add_column("User", justify="center", width=6)
+        table.add_column("Blind spot?", width=24)
+
+        for r in disagree:
+            scores = r.get("ragas_scores") or {}
+            vals = [v for v in scores.values() if v is not None]
+            composite = round(sum(vals) / len(vals), 3) if vals else None
+            user = "👍" if r["user_rating"] == 1 else "👎"
+            note = "High RAGAS, user unhappy" if r["user_rating"] == -1 else "Low RAGAS, user happy"
+            table.add_row(
+                r["query"][:44] + ".." if len(r["query"]) > 44 else r["query"],
+                r.get("intent", "unknown")[:14],
+                f"{composite:.3f}" if composite else "N/A",
+                user,
+                note,
+            )
+        console.print(table)
+
+
+# =============================================================================
 # STEP 5 — Compare to baseline
 # =============================================================================
 
@@ -585,6 +702,10 @@ def main():
     console.print(f"\n[bold]Step 5:[/] Comparing to baseline...\n")
     comparison = compare_to_baseline(results)
     display_baseline_comparison(comparison)
+
+    console.print(f"\n[bold]Step 6:[/] Correlating with user feedback from RDS...\n")
+    results = correlate_with_rds_feedback(results, source="project-b")
+    display_feedback_correlation(results)
 
     if args.save_baseline:
         save_ragas_baseline(avgs)

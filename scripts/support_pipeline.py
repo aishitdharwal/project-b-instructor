@@ -16,6 +16,12 @@ Session 7 additions:
     BM25 + dense hybrid → Cohere rerank → context assembly (dedup + expand + compress)
   - Same intent-based doc_filter preserved; applied to both dense and BM25 search
 
+Session 8 additions:
+  - LiteLLM replaces direct OpenAI calls in classify_intent() and generate_response()
+    — provider-agnostic, swap model strings without changing any other code
+  - Model router applied in generate_response(): simple queries → gpt-4o-mini,
+    complex multi-step queries → gpt-4o (same routing logic as Project A)
+
 Run: python -m scripts.support_pipeline
 """
 import os
@@ -23,7 +29,7 @@ import sys
 import json
 import time
 
-from openai import OpenAI
+import litellm
 from langfuse import Langfuse
 from langfuse.decorators import observe, langfuse_context
 from dotenv import load_dotenv
@@ -35,13 +41,14 @@ from rich import box
 from scripts.retrieval import embed_query, retrieve, retrieve_filtered, retrieve_with_dedup, assemble_context, retrieve_advanced
 from scripts.query_classifier import classify_tool, classify_tools_needed, TOOL_DESCRIPTIONS
 from scripts.mock_tools import lookup_order, lookup_account, format_tool_result
+from scripts.model_router import route_model
 
 load_dotenv()
 
-client = OpenAI()
 langfuse = Langfuse()
 console = Console()
 
+# Fallback model — route_model() overrides this per query in generate_response()
 GENERATION_MODEL = "gpt-4o-mini"
 
 INTENTS = [
@@ -78,7 +85,8 @@ Context:
 
 @observe(name="classify_intent")
 def classify_intent(query: str) -> str:
-    response = client.chat.completions.create(
+    # Intent classification is always a simple task — gpt-4o-mini is sufficient
+    response = litellm.completion(
         model=GENERATION_MODEL, temperature=0,
         messages=[
             {"role": "system", "content": f"Classify this customer query into exactly one category. Respond with ONLY the category name.\nCategories: {', '.join(INTENTS)}"},
@@ -132,17 +140,20 @@ def call_tool(tool: str, query: str, intent: str) -> tuple[str, list]:
 
 @observe(name="generate_response")
 def generate_response(query: str, context: str, intent: str) -> str:
+    # Session 8: model router selects gpt-4o-mini for simple queries,
+    # gpt-4o for complex ones (tier reasoning, date arithmetic, comparisons)
+    model = route_model(query)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
         {"role": "user", "content": query},
     ]
-    response = client.chat.completions.create(
-        model=GENERATION_MODEL, messages=messages, temperature=0, max_tokens=800,
+    response = litellm.completion(
+        model=model, messages=messages, temperature=0, max_tokens=800,
     )
     answer = response.choices[0].message.content
     langfuse_context.update_current_observation(
         input=messages, output=answer,
-        metadata={"model": GENERATION_MODEL, "intent": intent},
+        metadata={"model": model, "intent": intent},
         usage={"input": response.usage.prompt_tokens, "output": response.usage.completion_tokens,
                "total": response.usage.total_tokens, "unit": "TOKENS"},
     )
